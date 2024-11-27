@@ -3,13 +3,18 @@
 import threading
 import requests
 import queue
+from dotenv import load_dotenv
+import os
+
+# .env file load
+load_dotenv()
 
 # communication Thread(API, Server)
 class Communication(threading.Thread):
     def __init__(self):
         super().__init__()
-        self.api_key = "API_KEY"  
-        self.server_url = "URL"  
+        self.api_key = os.getenv("API_KEY")  
+        self.server_url = os.getenv("SERVER_URL")
         self.task_queue = queue.Queue()  # 통신 Task Queue
         self.running = True
     
