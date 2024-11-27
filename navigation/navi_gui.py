@@ -1,7 +1,12 @@
+# navi_gui.py
+
 import customtkinter as ctk
 import tkinter as tk
+import datetime
+import subprocess
 from tkintermapview import TkinterMapView
 from geopy.distance import geodesic
+
 
 class NaviGUI(ctk.CTk):
     def __init__(self, data_queue, gps_receiver, communication,exit_flag):
@@ -20,6 +25,12 @@ class NaviGUI(ctk.CTk):
         # Route path
         self.previous_coords = None    
         self.destination_coords = None
+
+        # send server data
+        self.update_cnt = 0
+        self.mac_address = self.get_mac_address()  # MAC 주소 추출
+        self.email = "cdm1111"
+        self.fare = 0
 
         # GUI init
         self.init_gui()
@@ -77,6 +88,16 @@ class NaviGUI(ctk.CTk):
         self.attributes('-fullscreen', False)
         self.state('normal')
 
+    # 라즈베리 파이 환경에서 MAC 주소를 추출
+    def get_mac_address(self):
+        try:
+            result = subprocess.check_output(['cat', '/sys/class/net/eth0/address'])
+            print(result.strip().decode('utf-8')) # debug
+            return result.strip().decode('utf-8')
+        except Exception as e:
+            print(f"MAC 주소 추출 오류: {e}")
+            return "UNKNOWN"  # 오류 시 기본값 - UNKNOWN 문자열
+
     def start_destination_setting(self):
         self.setting_destination = True
         self.label_info.configure(text="지도를 클릭하여 목적지를 설정하세요.")
@@ -92,31 +113,8 @@ class NaviGUI(ctk.CTk):
             self.setting_destination = False
             self.label_info.configure(text="목적지가 설정되었습니다.")  # label update
 
-            ######################
-            # route calculation -> API use(Google Map API, Naver Map API, etc..)
             self.calculate_route()
-    """
-    def calculate_route(self):
-        ######################
-        # route calculation -> API use(Google Map API, Naver Map API, etc..)
-        if self.previous_coords and self.destination_coords:
-            # current location -> destination location distance
-            distance = geodesic(self.previous_coords, self.destination_coords).km
-            print(f"현재 위치에서 목적지까지의 거리: {distance:.2f}km")
 
-            # distance label update
-            self.label_distance.configure(text=f"목적지까지의 거리: {distance:.2f} km")
-
-            # fare calculation
-            fare = int(distance * 1000)  # 1km당 1000원 요금
-            print(f"예상 요금: {fare}원")
-            self.label_fare.configure(text=f"예상 요금: {fare} 원")
-
-            ######################
-            if hasattr(self, 'path_line') and self.path_line:
-                self.path_line.delete() 
-            self.path_line = self.map_widget.set_path([self.previous_coords, self.destination_coords])
-    """
     def calculate_route(self):
         """
         Communcation Thread -> request_route() call(task queue)
@@ -133,42 +131,47 @@ class NaviGUI(ctk.CTk):
 
     def update_route_on_map(self, path):
         """
-        path: response.json()
-        json안에서 path 데이터 parsing -> 경로 그리기
+        경로 좌표를 받아서 지도 위에 그리는 함수
         """
         try:
-            # 경로 좌표 추출
+            # 경로 데이터에서 좌표 추출
             route = path.get('route', {}).get('traoptimal', [])
             if not route:
                 print("경로 데이터를 찾을 수 없습니다.")
                 return
 
-            # 경로를 그릴 좌표 리스트 생성
             path_coords = []
             for section in route[0]['path']:
-                lat, lon = section  # 경로 좌표 (위도, 경도)
-                path_coords.append((lat, lon))
+                try:
+                    lon, lat = section  # 경도, 위도를 바꿔줍니다.
+                    path_coords.append((lat, lon))  # (위도, 경도)로 저장
+                except Exception as e:
+                    print(f"좌표 처리 오류: {e}")
 
-            # 기존 경로 삭제 (지도에 경로가 이미 있을 경우)
+            # 중복 좌표 제거
+            path_coords = list(dict.fromkeys(path_coords))
+
+            if len(path_coords) < 2:
+                print("경로가 너무 짧아 그릴 수 없습니다.")
+                return
+
+            print("path_coords 데이터 확인:", path_coords)
+
+            # 기존 경로 삭제
             if hasattr(self, 'path_line') and self.path_line:
+                print("기존 경로 삭제")
                 self.path_line.delete()
 
-            # 지도에 경로 그리기
-            self.path_line = self.map_widget.set_path(path_coords)
+            # 경로 그리기
+            print("경로 그리기 시작")
+            for i in range(len(path_coords) - 1):
+                # 두 좌표를 하나의 튜플로 묶어서 경로 그리기
+                self.path_line = self.map_widget.set_path([path_coords[i], path_coords[i + 1]])
+                print(f"경로 {i}와 {i + 1} 연결됨: {path_coords[i]} -> {path_coords[i + 1]}")
 
-            # 거리 계산 (단위: 미터 -> 킬로미터)
-            total_distance = route[0]['summary']['distance'] / 1000  # 거리 (m -> km)
-            print(f"목적지까지의 거리: {total_distance:.2f}km")
-            self.label_distance.configure(text=f"목적지까지의 거리: {total_distance:.2f} km")
-
-            # 요금 계산 (1km당 1000원 요금)
-            fare = int(total_distance * 1000)
-            print(f"예상 요금: {fare}원")
-            self.label_fare.configure(text=f"예상 요금: {fare} 원")
-    
+            print("경로 그리기 완료")
         except Exception as e:
             print(f"경로 업데이트 오류: {e}")
-
 
     def show_destination(self):
         # Refresh destination marker
@@ -181,12 +184,31 @@ class NaviGUI(ctk.CTk):
             # position update
             self.map_widget.set_position(lat, lon)
 
+    def send_data(self, lat=0, lon=0):
+        # current_time = datetime.now().isoformat()   # 현시각을 ISO 형식의 문자열로 변환
+        
+        data = {
+            "type" : "send",
+            "email": self.email,        # 기본 이메일
+            "mac": self.mac_address,    # get_mac_address에서 추출
+            "latitude": lat,       # previous_coords[0]
+            "longitude": lon,     # previous_coords[1]
+            "fare": self.fare,          # calculate_route에서 계산
+            # "timestamp": current_time,  # send_data 내부에서 계산
+        }
+            
+        self.communication.add_task(data)
+        # print(data)
+
     def update_location(self):
         # Main Gps data update function
         ## GPS data queue check
         if not self.data_queue.empty():
             lat, lon = self.data_queue.get()
+
             if lat is not None and lon is not None and self.setting_destination == False:
+                if self.update_cnt % 5 == 0:
+                    self.send_data(lat, lon)
                 if self.current_marker:
                     self.current_marker.delete()
                 # position update, Marker update
@@ -196,14 +218,10 @@ class NaviGUI(ctk.CTk):
                 # route calculation
                 self.previous_coords = (lat, lon)
 
-                if self.destination_coords:
-                    if hasattr(self, 'path_line') and self.path_line:
-                        self.path_line.delete()
-                    self.path_line = self.map_widget.set_path([self.previous_coords, self.destination_coords])
-
         if self.running:
             # update location every 500ms
             self.after(500, self.update_location)
+            self.update_cnt += 1
 
 
     def close_window(self):

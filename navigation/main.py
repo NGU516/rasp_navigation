@@ -1,4 +1,5 @@
 # main.py
+
 from communication import Communication
 from gps_receiver import GPSReceiver
 from navi_gui import NaviGUI

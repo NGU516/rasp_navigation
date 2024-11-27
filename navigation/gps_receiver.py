@@ -28,11 +28,11 @@ class GPSReceiver(threading.Thread):
                         if parts[5] == 'W': lon = -lon
                         # data_queue put (lat, lon)
                         self.data_queue.put((lat, lon))
-                        print(f"GPS Data: {lat}, {lon}")
+                        # print(f"GPS Data: {lat}, {lon}")
                         # print(self.data_queue.qsize())
                     else:
                         self.data_queue.put((None, None))
-                        print("GPS Data: None, None")
+                        # print("GPS Data: None, None")
             except Exception as e:
                 print(f"GPS Read Error: {e}")
 
